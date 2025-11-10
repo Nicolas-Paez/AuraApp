@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Círculo de fondo -->
+  <circle cx="512" cy="512" r="400" fill="#EEF2FF" />
+  
+  <!-- Icono de rayo -->
+  <path d="M512 224L320 512h192l-64 288L704 512H512l64-288z" 
+        fill="#1E3A8A" 
+        stroke="#1E3A8A" 
+        stroke-width="32"/>
+        
+  <!-- Texto AURA -->
+  <text x="512" y="900" 
+        font-family="Arial, sans-serif" 
+        font-size="120" 
+        font-weight="900" 
+        text-anchor="middle" 
+        fill="#1E3A8A">AURA</text>
+</svg>

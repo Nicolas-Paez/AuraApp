@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
+import 'package:aura3/widgets/common_appbar.dart';
+import 'package:aura3/utils/time_picker_wheel.dart';
 import 'package:aura3/models/Medicamento.dart';
+import 'package:aura3/models/HistorialMedicamento.dart';
+import 'package:aura3/models/TomaMedicamento.dart';
+import 'package:aura3/utils/notifications.dart';
+import 'package:aura3/utils/hive_boxes.dart';
 
 class AnadirMedicamentoScreen extends StatefulWidget {
   const AnadirMedicamentoScreen({super.key});
@@ -28,7 +34,10 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
 
   Future<void> _pickTime() async {
     final initial = TimeOfDay.now();
-    final picked = await showTimePicker(context: context, initialTime: initial);
+    final picked = await showWheelTimePicker(
+      context: context,
+      initialTime: initial,
+    );
     if (picked != null) {
       final formatted = _formatTimeOfDay(picked);
       if (!horarios.contains(formatted)) {
@@ -67,6 +76,7 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
     final nuevo = Medicamento(
       nombre: nombreController.text.trim(),
       dosis: parsed,
+      dosisInicial: parsed,
       unidad: unidad,
       horarios: List<String>.from(horarios),
       notas: notasController.text.trim().isEmpty
@@ -77,6 +87,91 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
     );
 
     await box.add(nuevo);
+
+    // Crear entrada inicial en el historial farmacológico
+    try {
+      if (!Hive.isBoxOpen(historialMedicamentosBoxName)) {
+        await Hive.openBox<HistorialMedicamento>(historialMedicamentosBoxName);
+      }
+      final histBox = Hive.box<HistorialMedicamento>(
+        historialMedicamentosBoxName,
+      );
+      final historial = HistorialMedicamento(
+        fechaInicio: DateTime.now(),
+        medicamento: nuevo.nombre,
+        dosis: nuevo.dosis.toString(),
+        unidad: nuevo.unidad,
+      );
+      await histBox.add(historial);
+    } catch (e) {
+      print('No se pudo crear historial inicial: $e');
+    }
+
+    // Programar alarmas diarias y crear tomas pendientes para el próximo turno
+    try {
+      // Asegurarnos de que el sistema de notificaciones esté inicializado
+      // antes de programar recordatorios (evita race conditions si
+      // `initLocalNotifications()` todavía está arrancando en background).
+      try {
+        await initLocalNotifications();
+      } catch (e) {
+        print('Advertencia: no se pudieron inicializar notificaciones: $e');
+        // Continuamos de todas maneras; las llamadas a schedule intentarán
+        // programar aunque la inicialización falle.
+      }
+      if (!Hive.isBoxOpen(tomasMedicamentosBoxName)) {
+        await Hive.openBox<TomaMedicamento>(tomasMedicamentosBoxName);
+      }
+      final tomaBox = Hive.box<TomaMedicamento>(tomasMedicamentosBoxName);
+
+      for (var h in nuevo.horarios) {
+        final parts = h.split(':');
+        if (parts.length != 2) continue;
+        final hour = int.tryParse(parts[0]);
+        final minute = int.tryParse(parts[1]);
+        if (hour == null || minute == null) continue;
+
+        var fechaProgramada = DateTime(
+          DateTime.now().year,
+          DateTime.now().month,
+          DateTime.now().day,
+          hour,
+          minute,
+        );
+        if (fechaProgramada.isBefore(DateTime.now())) {
+          fechaProgramada = fechaProgramada.add(const Duration(days: 1));
+        }
+
+        // Añadir una toma pendiente para la próxima fecha si no existe
+        final exists = tomaBox.values.any(
+          (t) =>
+              t.medicamentoNombre == nuevo.nombre &&
+              t.fechaProgramada.year == fechaProgramada.year &&
+              t.fechaProgramada.month == fechaProgramada.month &&
+              t.fechaProgramada.day == fechaProgramada.day &&
+              t.fechaProgramada.hour == fechaProgramada.hour &&
+              t.fechaProgramada.minute == fechaProgramada.minute,
+        );
+
+        if (!exists) {
+          final toma = TomaMedicamento(
+            medicamentoKey: nuevo.key as int,
+            medicamentoNombre: nuevo.nombre,
+            fechaProgramada: fechaProgramada,
+            estado: 'Pendiente',
+          );
+          await tomaBox.add(toma);
+        }
+
+        // Programar notificación diaria (repetitiva)
+        await scheduleMedicationReminder(nuevo, fechaProgramada);
+      }
+
+      // Actualizar scheduling global para forzar recálculo hoy
+      await scheduleAllSmartNotifications(force: true);
+    } catch (e) {
+      print('Error programando alarmas/tomas iniciales: $e');
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Medicamento añadido correctamente')),
@@ -89,12 +184,7 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1E3A8A),
-        title: const Text('Añadir Medicamento'),
-        elevation: 0,
-      ),
+      appBar: const CommonAppBar(title: 'Añadir Medicamento'),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -143,7 +233,7 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
                       children: [
                         _buildLabel('Unidad:'),
                         DropdownButtonFormField<String>(
-                          value: unidad,
+                          initialValue: unidad,
                           decoration: InputDecoration(
                             filled: true,
                             fillColor: Colors.grey.shade100,
@@ -210,7 +300,7 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
                   const Text('¿Es medicación de rescate?'),
                   const SizedBox(width: 8),
                   Switch(
-                    activeColor: const Color(0xFF1E3A8A),
+                    activeThumbColor: const Color(0xFF1E3A8A),
                     value: esRescate,
                     onChanged: (v) => setState(() => esRescate = v),
                   ),

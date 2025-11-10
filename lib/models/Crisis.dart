@@ -41,11 +41,20 @@ class Crisis extends HiveObject {
   @HiveField(10)
   int? estadoAnimoDespues;
 
+  // Key a medicamento dentro de la box (si se seleccionó medicamento de rescate por key)
+  @HiveField(11)
+  int? medicamentoRescateKey;
+
+  // Observaciones adicionales o notas libres
+  @HiveField(12)
+  String? observacionesAdicionales;
+
   Crisis({
     required this.fechaHora,
     required this.duracion,
     required this.consciente,
     required this.medicamentoRescate,
+    this.medicamentoRescateKey,
     this.preictal,
     this.ictal,
     this.medicacionEmergencia,
@@ -53,5 +62,6 @@ class Crisis extends HiveObject {
     this.postictalTiempoRecuperacion,
     this.estadoAnimoAntes,
     this.estadoAnimoDespues,
+    this.observacionesAdicionales,
   });
 }

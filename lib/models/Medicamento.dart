@@ -34,6 +34,17 @@ class Medicamento extends HiveObject {
   @HiveField(8)
   String? alertas;
 
+  // Dosis inicial del tratamiento (opcional). Se usa para mostrar el punto
+  // inicial en los gráficos de historial farmacológico. Si es null, el UI
+  // hará fallback a `dosis`.
+  @HiveField(9)
+  double? dosisInicial;
+
+  // Compatibility getter: some utilities check `med.activo` — expose a default
+  // active flag. For a more accurate check, consider computing this from a
+  // HistorialMedicamento or adding a persisted field.
+  bool get activo => true;
+
   Medicamento({
     required this.nombre,
     required this.dosis,
@@ -44,5 +55,6 @@ class Medicamento extends HiveObject {
     required this.fechaInicio,
     this.adherencia,
     this.alertas,
+    this.dosisInicial,
   });
 }

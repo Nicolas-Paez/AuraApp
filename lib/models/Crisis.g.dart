@@ -21,6 +21,7 @@ class CrisisAdapter extends TypeAdapter<Crisis> {
       duracion: fields[1] as String,
       consciente: fields[2] as String,
       medicamentoRescate: fields[3] as String,
+      medicamentoRescateKey: fields[11] as int?,
       preictal: fields[4] as String?,
       ictal: fields[5] as String?,
       medicacionEmergencia: fields[6] as String?,
@@ -28,13 +29,14 @@ class CrisisAdapter extends TypeAdapter<Crisis> {
       postictalTiempoRecuperacion: fields[8] as String?,
       estadoAnimoAntes: fields[9] as int?,
       estadoAnimoDespues: fields[10] as int?,
+      observacionesAdicionales: fields[12] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Crisis obj) {
     writer
-      ..writeByte(11)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.fechaHora)
       ..writeByte(1)
@@ -56,7 +58,11 @@ class CrisisAdapter extends TypeAdapter<Crisis> {
       ..writeByte(9)
       ..write(obj.estadoAnimoAntes)
       ..writeByte(10)
-      ..write(obj.estadoAnimoDespues);
+      ..write(obj.estadoAnimoDespues)
+      ..writeByte(11)
+      ..write(obj.medicamentoRescateKey)
+      ..writeByte(12)
+      ..write(obj.observacionesAdicionales);
   }
 
   @override

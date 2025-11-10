@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:aura3/models/Medicamento.dart';
 import 'package:intl/intl.dart';
+import 'package:aura3/widgets/common_appbar.dart';
+import 'package:aura3/utils/time_picker_wheel.dart';
 import 'package:hive/hive.dart';
+import 'package:aura3/models/CambioDosis.dart';
+import 'package:aura3/models/HistorialMedicamento.dart';
+import 'package:aura3/utils/hive_boxes.dart';
 
 class EditarMedicamentoScreen extends StatefulWidget {
   final int medicamentoKey; // key dentro de la box
@@ -46,7 +51,7 @@ class _EditarMedicamentoScreenState extends State<EditarMedicamentoScreen> {
   }
 
   Future<void> _pickTime() async {
-    final picked = await showTimePicker(
+    final picked = await showWheelTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
     );
@@ -70,6 +75,9 @@ class _EditarMedicamentoScreenState extends State<EditarMedicamentoScreen> {
     }
     if (medicamento == null) return;
 
+    // Guardar valor previo para detectar cambio de dosis
+    final previousDosis = medicamento!.dosis;
+
     medicamento!
       ..nombre = nombreController.text.trim()
       ..dosis = parsed
@@ -81,6 +89,46 @@ class _EditarMedicamentoScreenState extends State<EditarMedicamentoScreen> {
       ..esRescate = esRescate;
 
     await medicamento!.save();
+
+    // Si la dosis cambió, registrar el cambio en la caja de cambios y en el historial
+    try {
+      if (previousDosis != parsed) {
+        // Create cambio record
+        if (!Hive.isBoxOpen(CambioDosisBoxName)) {
+          await Hive.openBox<CambioDosis>(CambioDosisBoxName);
+        }
+        final cambiosBox = Hive.box<CambioDosis>(CambioDosisBoxName);
+        final cambio = CambioDosis(
+          fecha: DateTime.now(),
+          dosis: parsed.toString(),
+          razon: 'Ajuste manual',
+          unidad: unidad,
+          medicamentoKey: medicamento!.key as int?,
+        );
+        await cambiosBox.add(cambio);
+
+        // También intentar anexar al HistorialMedicamento si existe (por nombre)
+        if (!Hive.isBoxOpen(historialMedicamentosBoxName)) {
+          await Hive.openBox<HistorialMedicamento>(
+            historialMedicamentosBoxName,
+          );
+        }
+        final histBox = Hive.box<HistorialMedicamento>(
+          historialMedicamentosBoxName,
+        );
+        try {
+          final posible = histBox.values
+              .where((h) => h.medicamento == medicamento!.nombre)
+              .toList();
+          if (posible.isNotEmpty) {
+            final h = posible.first;
+            h.agregarCambioDosis(cambio);
+          }
+        } catch (_) {}
+      }
+    } catch (e) {
+      print('Error guardando cambio de dosis: $e');
+    }
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Cambios guardados')));
@@ -91,19 +139,14 @@ class _EditarMedicamentoScreenState extends State<EditarMedicamentoScreen> {
   Widget build(BuildContext context) {
     if (medicamento == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Editar Medicamento')),
+        appBar: const CommonAppBar(title: 'Editar Medicamento'),
         body: const Center(child: Text('Medicamento no encontrado')),
       );
     }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1E3A8A),
-        title: const Text('Editar Medicamento'),
-        elevation: 0,
-      ),
+      appBar: const CommonAppBar(title: 'Editar Medicamento'),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -143,7 +186,7 @@ class _EditarMedicamentoScreenState extends State<EditarMedicamentoScreen> {
                   Expanded(
                     flex: 1,
                     child: DropdownButtonFormField<String>(
-                      value: unidad,
+                      initialValue: unidad,
                       decoration: InputDecoration(
                         filled: true,
                         fillColor: Colors.grey.shade100,
@@ -200,7 +243,7 @@ class _EditarMedicamentoScreenState extends State<EditarMedicamentoScreen> {
                   const Text('¿Es medicación de rescate?'),
                   const SizedBox(width: 8),
                   Switch(
-                    activeColor: const Color(0xFF1E3A8A),
+                    activeThumbColor: const Color(0xFF1E3A8A),
                     value: esRescate,
                     onChanged: (v) => setState(() => esRescate = v),
                   ),
