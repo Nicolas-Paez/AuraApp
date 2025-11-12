@@ -51,7 +51,9 @@ class LoadingOverlay extends StatelessWidget {
                     width: 200,
                     child: LinearProgressIndicator(
                       value: progress,
-                      backgroundColor: const Color(0xFF1E3A8A).withOpacity(0.1),
+                      backgroundColor: const Color(
+                        0xFF1E3A8A,
+                      ).withAlpha((0.1 * 255).round()),
                       valueColor: const AlwaysStoppedAnimation<Color>(
                         Color(0xFF1E3A8A),
                       ),
@@ -90,7 +92,7 @@ class LoadingOverlay extends StatelessWidget {
                                   style: TextStyle(
                                     color: const Color(
                                       0xFF1E3A8A,
-                                    ).withOpacity(0.7),
+                                    ).withAlpha((0.7 * 255).round()),
                                     fontSize: 12,
                                   ),
                                 ),
@@ -102,7 +104,7 @@ class LoadingOverlay extends StatelessWidget {
                                       ? Colors.green
                                       : const Color(
                                           0xFF1E3A8A,
-                                        ).withOpacity(0.4),
+                                        ).withAlpha((0.4 * 255).round()),
                                   size: 16,
                                 ),
                               ],

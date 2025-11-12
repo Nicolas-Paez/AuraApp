@@ -32,15 +32,31 @@ class _EditarMedicamentoScreenState extends State<EditarMedicamentoScreen> {
   @override
   void initState() {
     super.initState();
-    box = Hive.box<Medicamento>('medicamentosBox');
-    medicamento = box.getAt(widget.medicamentoKey);
-    if (medicamento != null) {
-      nombreController.text = medicamento!.nombre;
-      dosisController.text = medicamento!.dosis.toString();
-      unidad = medicamento!.unidad;
-      notasController.text = medicamento!.notas ?? '';
-      esRescate = medicamento!.esRescate;
-      horarios = List<String>.from(medicamento!.horarios);
+    // Cargar la caja y el medicamento de forma segura. Evita excepciones si
+    // la caja aún no ha sido abierta en el flujo de la app.
+    _ensureBoxAndLoad();
+  }
+
+  Future<void> _ensureBoxAndLoad() async {
+    try {
+      if (!Hive.isBoxOpen(medicamentosBoxName)) {
+        await Hive.openBox<Medicamento>(medicamentosBoxName);
+      }
+      box = Hive.box<Medicamento>(medicamentosBoxName);
+      medicamento = box.getAt(widget.medicamentoKey);
+      if (medicamento != null) {
+        nombreController.text = medicamento!.nombre;
+        dosisController.text = medicamento!.dosis.toString();
+        unidad = medicamento!.unidad;
+        notasController.text = medicamento!.notas ?? '';
+        esRescate = medicamento!.esRescate;
+        horarios = List<String>.from(medicamento!.horarios);
+      }
+      // Refrescar UI
+      if (mounted) setState(() {});
+    } catch (e) {
+      // En caso de error, mostrar en consola y dejar la pantalla en estado seguro
+      debugPrint('Error cargando medicamento: $e');
     }
   }
 
@@ -240,7 +256,9 @@ class _EditarMedicamentoScreenState extends State<EditarMedicamentoScreen> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  const Text('¿Es medicación de rescate?'),
+                  // Evitar overflow en pantallas pequeñas envolviendo el texto
+                  // en un Expanded para que ocupe el espacio restante.
+                  Expanded(child: Text('¿Es medicación de rescate?')),
                   const SizedBox(width: 8),
                   Switch(
                     activeThumbColor: const Color(0xFF1E3A8A),
@@ -253,8 +271,17 @@ class _EditarMedicamentoScreenState extends State<EditarMedicamentoScreen> {
               const SizedBox(height: 28),
               Center(
                 child: ElevatedButton.icon(
-                  icon: const Icon(Icons.save),
-                  label: const Text('Guardar Cambios'),
+                  icon: const Icon(
+                    Icons.save,
+                    color: Colors.white, // Ícono blanco
+                  ),
+                  label: const Text(
+                    'Guardar Cambios',
+                    style: TextStyle(
+                      color: Colors.white, // Texto blanco
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   onPressed: _guardarCambios,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1E3A8A),

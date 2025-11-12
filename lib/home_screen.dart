@@ -74,8 +74,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _preloadEssentialData() async {
     try {
+      // **ACTUALIZACIÓN:** Esperamos a que la caja de Tomas Medicamentos también esté abierta.
       while (!Hive.isBoxOpen(medicamentosBoxName) ||
-          !Hive.isBoxOpen(crisisBoxName)) {
+          !Hive.isBoxOpen(crisisBoxName) ||
+          !Hive.isBoxOpen(tomasMedicamentosBoxName)) {
         await Future.delayed(const Duration(milliseconds: 100));
       }
     } catch (e) {
@@ -154,21 +156,65 @@ class _HomeScreenState extends State<HomeScreen> {
     }).length;
   }
 
+  // **ACTUALIZACIÓN:** Lógica modificada para excluir las tomas ya registradas
   int getPendingNotificationsCount() {
     final now = TimeOfDay.now();
+    final nowDateTime = DateTime.now();
     int count = 0;
+
+    // Check if boxes are open (they should be after _preloadEssentialData)
     if (!Hive.isBoxOpen(medicamentosBoxName)) return getPendingCrisisCount();
+    final bool isTomasBoxOpen = Hive.isBoxOpen(tomasMedicamentosBoxName);
+    final tomaBox = isTomasBoxOpen
+        ? Hive.box<TomaMedicamento>(tomasMedicamentosBoxName)
+        : null;
     final medBox = Hive.box<Medicamento>(medicamentosBoxName);
+
+    // 1. Pending Medications (upcoming and not yet registered)
     for (var med in medBox.values) {
+      if (!med.activo || med.horarios.isEmpty) continue;
+
       for (var h in med.horarios) {
         final parts = h.split(':');
         final hour = int.parse(parts[0]);
         final minute = int.parse(parts[1]);
-        if (hour > now.hour || (hour == now.hour && minute >= now.minute)) {
+
+        // Check for today's schedule that is *not* in the past
+        if (hour < now.hour || (hour == now.hour && minute < now.minute))
+          continue;
+
+        final fechaProgramada = DateTime(
+          nowDateTime.year,
+          nowDateTime.month,
+          nowDateTime.day,
+          hour,
+          minute,
+        );
+
+        // Check if already registered (Tomada or No tomada)
+        bool yaRegistrada = false;
+        if (isTomasBoxOpen && tomaBox != null) {
+          for (var toma in tomaBox.values) {
+            if (toma.medicamentoKey == med.key &&
+                toma.fechaProgramada.year == fechaProgramada.year &&
+                toma.fechaProgramada.month == fechaProgramada.month &&
+                toma.fechaProgramada.day == fechaProgramada.day &&
+                toma.fechaProgramada.hour == fechaProgramada.hour &&
+                toma.fechaProgramada.minute == fechaProgramada.minute &&
+                (toma.estado == 'Tomada' || toma.estado == 'No tomada')) {
+              yaRegistrada = true;
+              break;
+            }
+          }
+        }
+
+        if (!yaRegistrada) {
           count++;
         }
       }
     }
+
+    // 2. Pending Crises
     count += getPendingCrisisCount();
     return count;
   }
@@ -325,107 +371,124 @@ class _HomeScreenState extends State<HomeScreen> {
                             'NO TOMADO',
                             style: TextStyle(color: Colors.red),
                           ),
+                          // **CORRECCIÓN:** Manejo de contexto para cerrar el modal y solución de teclado
                           onPressed: () async {
-                            // Usar un StatefulBuilder para manejar el estado del botón
+                            final rootContext = context;
+
+                            // Controlador fuera del builder para no perder el texto
                             final controller = TextEditingController();
+
                             final reason = await showDialog<String>(
-                              context: context,
-                              builder: (context) => StatefulBuilder(
-                                builder: (context, setState) => Dialog(
-                                  insetPadding: EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical:
-                                        MediaQuery.of(context).size.height *
-                                        0.2,
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        const Text(
-                                          'Razón por la que no se tomó',
-                                          style: TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                              context: rootContext,
+                              barrierDismissible: false,
+                              builder: (BuildContext dialogContext) {
+                                return StatefulBuilder(
+                                  builder: (context, setState) {
+                                    return AlertDialog(
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      title: const Text(
+                                        'Razón por la que no se tomó',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
                                         ),
-                                        const SizedBox(height: 16),
-                                        TextField(
-                                          controller: controller,
-                                          autofocus: true,
-                                          decoration: const InputDecoration(
-                                            hintText:
-                                                'Ej: se me olvidó, no me sentía bien...',
-                                            border: OutlineInputBorder(),
+                                      ),
+                                      content: TextField(
+                                        controller: controller,
+                                        autofocus: true,
+                                        textInputAction: TextInputAction.done,
+                                        decoration: const InputDecoration(
+                                          hintText:
+                                              'Ej: se me olvidó, no me sentía bien...',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                        onEditingComplete: () {
+                                          FocusScope.of(context).unfocus();
+                                        },
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () {
+                                            FocusScope.of(
+                                              dialogContext,
+                                            ).unfocus();
+                                            Navigator.of(dialogContext).pop();
+                                          },
+                                          child: const Text('Cancelar'),
+                                        ),
+                                        ElevatedButton.icon(
+                                          icon: const Icon(
+                                            Icons.save,
+                                            color: Colors.white,
                                           ),
-                                          onSubmitted: (value) {
-                                            if (value.trim().isNotEmpty) {
-                                              Navigator.pop(context, value);
+                                          label: const Text(
+                                            'Guardar',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(
+                                              0xFF1E3A8A,
+                                            ),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 20,
+                                              vertical: 12,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                          ),
+                                          onPressed: () {
+                                            final text = controller.text.trim();
+                                            if (text.isNotEmpty) {
+                                              FocusScope.of(
+                                                dialogContext,
+                                              ).unfocus();
+                                              Navigator.of(
+                                                dialogContext,
+                                              ).pop(text);
                                             }
                                           },
-                                          onChanged: (value) {
-                                            // Forzar actualización para habilitar/deshabilitar el botón
-                                            setState(() {});
-                                          },
-                                        ),
-                                        const SizedBox(height: 16),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.end,
-                                          children: [
-                                            TextButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(context),
-                                              child: const Text('Cancelar'),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            ElevatedButton(
-                                              onPressed:
-                                                  controller.text.trim().isEmpty
-                                                  ? null // Deshabilitar si está vacío
-                                                  : () => Navigator.pop(
-                                                      context,
-                                                      controller.text,
-                                                    ),
-                                              child: const Text('Guardar'),
-                                            ),
-                                          ],
                                         ),
                                       ],
-                                    ),
-                                  ),
-                                ),
-                              ),
+                                    );
+                                  },
+                                );
+                              },
                             );
-                            controller.dispose(); // Limpiar el controller
 
-                            if (reason != null && mounted) {
-                              await markAsNotTaken(
-                                med,
+                            if (reason == null || reason.trim().isEmpty) return;
+
+                            await markAsNotTaken(
+                              med,
+                              fechaProgramada,
+                              razon: reason,
+                            );
+
+                            try {
+                              await clearNotificationFor(
+                                med.key as int,
                                 fechaProgramada,
-                                razon: reason,
                               );
-                              // Ensure notifications for this toma are dismissed
-                              try {
-                                await clearNotificationFor(
-                                  med.key as int,
-                                  fechaProgramada,
-                                );
-                              } catch (_) {}
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      '${med.nombre} marcado como no tomado',
-                                    ),
-                                    backgroundColor: Colors.red,
+                            } catch (_) {}
+
+                            if (rootContext.mounted) {
+                              ScaffoldMessenger.of(rootContext).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    '${med.nombre} marcado como no tomado',
                                   ),
-                                );
-                                Navigator.pop(context); // Cerrar modal
-                              }
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+
+                            if (rootContext.mounted &&
+                                Navigator.canPop(rootContext)) {
+                              Navigator.pop(rootContext);
                             }
                           },
                         ),
@@ -577,7 +640,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     // NOTE: removed blocking loading screen to avoid runtime issues when
     // Hive boxes are not yet opened. Individual widgets and helpers already
-    // check `Hive.isBoxOpen(...)` before accessing boxes.
+    // check Hive.isBoxOpen(...) before accessing boxes.
 
     return Scaffold(
       backgroundColor: const Color(0xFFF2F4F7),
@@ -597,36 +660,47 @@ class _HomeScreenState extends State<HomeScreen> {
               Positioned(
                 right: 8,
                 top: 8,
+                // **ACTUALIZACIÓN:** Listener anidado para actualizar el contador en tiempo real
                 child: ValueListenableBuilder(
-                  // Use a fallback ValueNotifier when the box isn't open to
-                  // avoid calling `Hive.box(...)` too early.
-                  valueListenable: Hive.isBoxOpen(crisisBoxName)
-                      ? Hive.box<Crisis>(crisisBoxName).listenable()
+                  // Listener 1: Escucha la caja de Tomas (cuando se marca un medicamento)
+                  valueListenable: Hive.isBoxOpen(tomasMedicamentosBoxName)
+                      ? Hive.box<TomaMedicamento>(
+                          tomasMedicamentosBoxName,
+                        ).listenable()
                       : ValueNotifier(null),
-                  builder: (context, box, _) {
-                    final pending = getPendingNotificationsCount();
-                    return pending > 0
-                        ? Container(
-                            padding: const EdgeInsets.all(2),
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                            constraints: const BoxConstraints(
-                              minWidth: 16,
-                              minHeight: 16,
-                            ),
-                            child: Text(
-                              '$pending',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          )
-                        : const SizedBox.shrink();
+                  builder: (context, tomaBox, _) {
+                    // Listener 2: Escucha la caja de Crisis (cuando se registra una crisis)
+                    return ValueListenableBuilder(
+                      valueListenable: Hive.isBoxOpen(crisisBoxName)
+                          ? Hive.box<Crisis>(crisisBoxName).listenable()
+                          : ValueNotifier(null),
+                      builder: (context, crisisBox, __) {
+                        final pending = getPendingNotificationsCount();
+
+                        return pending > 0
+                            ? Container(
+                                padding: const EdgeInsets.all(2),
+                                decoration: const BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
+                                constraints: const BoxConstraints(
+                                  minWidth: 16,
+                                  minHeight: 16,
+                                ),
+                                child: Text(
+                                  '$pending',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              )
+                            : const SizedBox.shrink();
+                      },
+                    );
                   },
                 ),
               ),

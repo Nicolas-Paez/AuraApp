@@ -354,7 +354,7 @@ class _AlarmOverlayPageState extends State<AlarmOverlayPage>
 
     return PopScope(
       canPop: false,
-      onPopInvoked: (didPop) async {
+      onPopInvokedWithResult: (didPop, result) async {
         if (!didPop) {
           await _dismissWithoutMarking();
         }
@@ -417,7 +417,7 @@ class _AlarmOverlayPageState extends State<AlarmOverlayPage>
                     margin: const EdgeInsets.only(bottom: 24),
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
+                      color: Colors.white.withAlpha((0.1 * 255).round()),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(

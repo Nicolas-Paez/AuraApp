@@ -4,6 +4,7 @@ import 'package:aura3/models/Medicamento.dart';
 import 'package:aura3/models/HistorialMedicamento.dart';
 import 'package:intl/intl.dart';
 import 'package:aura3/widgets/common_appbar.dart';
+import 'package:aura3/utils/hive_boxes.dart';
 import 'EditarMedicamentoScreen.dart';
 
 enum FiltroMedicamento { todos, activos, inactivos }
@@ -17,19 +18,37 @@ class ListarMedicamentosScreen extends StatefulWidget {
 }
 
 class _ListarMedicamentosScreenState extends State<ListarMedicamentosScreen> {
-  late Box<Medicamento> boxMedicamentos;
-  late Box<HistorialMedicamento> boxHistorial;
+  Box<Medicamento>? boxMedicamentos;
+  Box<HistorialMedicamento>? boxHistorial;
   FiltroMedicamento filtro = FiltroMedicamento.todos;
+  bool _ready = false;
 
   @override
   void initState() {
     super.initState();
-    boxMedicamentos = Hive.box<Medicamento>('medicamentosBox');
-    boxHistorial = Hive.box<HistorialMedicamento>('historialMedicamentosBox');
+    _ensureBoxes();
+  }
+
+  Future<void> _ensureBoxes() async {
+    try {
+      if (!Hive.isBoxOpen(medicamentosBoxName)) {
+        await Hive.openBox<Medicamento>(medicamentosBoxName);
+      }
+      if (!Hive.isBoxOpen(historialMedicamentosBoxName)) {
+        await Hive.openBox<HistorialMedicamento>(historialMedicamentosBoxName);
+      }
+      boxMedicamentos = Hive.box<Medicamento>(medicamentosBoxName);
+      boxHistorial = Hive.box<HistorialMedicamento>(
+        historialMedicamentosBoxName,
+      );
+    } catch (e) {
+      debugPrint('Error abriendo cajas de medicamentos/historial: $e');
+    }
+    if (mounted) setState(() => _ready = true);
   }
 
   bool _estaActivo(Medicamento medicamento) {
-    final historial = boxHistorial.values.where(
+    final historial = boxHistorial!.values.where(
       (h) => h.medicamentoKey == medicamento.key,
     );
     if (historial.isEmpty) return true;
@@ -42,7 +61,7 @@ class _ListarMedicamentosScreenState extends State<ListarMedicamentosScreen> {
   }
 
   List<Medicamento> _filtrarMedicamentos() {
-    final meds = boxMedicamentos.values.toList();
+    final meds = boxMedicamentos!.values.toList();
     switch (filtro) {
       case FiltroMedicamento.activos:
         return meds.where((m) => _estaActivo(m)).toList();
@@ -55,11 +74,20 @@ class _ListarMedicamentosScreenState extends State<ListarMedicamentosScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Si las cajas aún no están listas, mostrar indicador de carga
+    if (!_ready || boxMedicamentos == null || boxHistorial == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F6FA),
+        appBar: const CommonAppBar(title: 'Mis Medicamentos'),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
       appBar: const CommonAppBar(title: 'Mis Medicamentos'),
       body: ValueListenableBuilder(
-        valueListenable: boxMedicamentos.listenable(),
+        valueListenable: boxMedicamentos!.listenable(),
         builder: (context, Box<Medicamento> items, _) {
           if (items.isEmpty) {
             return const Center(
@@ -136,7 +164,7 @@ class _ListarMedicamentosScreenState extends State<ListarMedicamentosScreen> {
                         itemBuilder: (context, index) {
                           final medicamento = medicamentos[index];
                           final activo = _estaActivo(medicamento);
-                          final historial = boxHistorial.values
+                          final historial = boxHistorial!.values
                               .where((h) => h.medicamentoKey == medicamento.key)
                               .toList();
 

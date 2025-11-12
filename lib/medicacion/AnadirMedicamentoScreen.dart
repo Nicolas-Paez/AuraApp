@@ -25,6 +25,8 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
 
   String unidad = 'mg';
   bool esRescate = false;
+  // NUEVO: Bandera para controlar la pulsación del botón
+  bool _isSaving = false;
 
   // Horarios como lista de strings "HH:mm"
   final List<String> horarios = [];
@@ -60,7 +62,37 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
   }
 
   Future<void> _guardarMedicamento() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate() || _isSaving) return;
+
+    // 1. Deshabilitar el botón inmediatamente
+    setState(() {
+      _isSaving = true;
+    });
+
+    final nombreTrimmed = nombreController.text.trim();
+    final box = Hive.box<Medicamento>('medicamentosBox');
+
+    // VALIDACIÓN DE DUPLICADOS
+    final isDuplicate = box.values.any(
+      (med) => med.nombre.trim().toLowerCase() == nombreTrimmed.toLowerCase(),
+    );
+
+    if (isDuplicate) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '❌ El medicamento "$nombreTrimmed" ya existe. No se puede añadir duplicados.',
+          ),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      // Habilitar el botón nuevamente en caso de error
+      setState(() {
+        _isSaving = false;
+      });
+      return;
+    }
 
     // validar que la dosis sea numérica
     final dosisStr = dosisController.text.replaceAll(',', '.');
@@ -69,12 +101,15 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Ingresa una dosis válida (> 0)')),
       );
+      // Habilitar el botón nuevamente en caso de error
+      setState(() {
+        _isSaving = false;
+      });
       return;
     }
 
-    final box = Hive.box<Medicamento>('medicamentosBox');
     final nuevo = Medicamento(
-      nombre: nombreController.text.trim(),
+      nombre: nombreTrimmed,
       dosis: parsed,
       dosisInicial: parsed,
       unidad: unidad,
@@ -86,10 +121,10 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
       fechaInicio: DateTime.now(),
     );
 
-    await box.add(nuevo);
-
-    // Crear entrada inicial en el historial farmacológico
     try {
+      await box.add(nuevo);
+
+      // Crear entrada inicial en el historial farmacológico
       if (!Hive.isBoxOpen(historialMedicamentosBoxName)) {
         await Hive.openBox<HistorialMedicamento>(historialMedicamentosBoxName);
       }
@@ -103,21 +138,12 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
         unidad: nuevo.unidad,
       );
       await histBox.add(historial);
-    } catch (e) {
-      print('No se pudo crear historial inicial: $e');
-    }
 
-    // Programar alarmas diarias y crear tomas pendientes para el próximo turno
-    try {
-      // Asegurarnos de que el sistema de notificaciones esté inicializado
-      // antes de programar recordatorios (evita race conditions si
-      // `initLocalNotifications()` todavía está arrancando en background).
+      // Programar alarmas diarias y crear tomas pendientes
       try {
         await initLocalNotifications();
       } catch (e) {
         print('Advertencia: no se pudieron inicializar notificaciones: $e');
-        // Continuamos de todas maneras; las llamadas a schedule intentarán
-        // programar aunque la inicialización falle.
       }
       if (!Hive.isBoxOpen(tomasMedicamentosBoxName)) {
         await Hive.openBox<TomaMedicamento>(tomasMedicamentosBoxName);
@@ -169,15 +195,36 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
 
       // Actualizar scheduling global para forzar recálculo hoy
       await scheduleAllSmartNotifications(force: true);
+
+      // CONFIRMACIÓN VISUAL MEJORADA
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '✅ Medicamento "$nombreTrimmed" añadido correctamente.',
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // Se agrega un pequeño retraso para que el SnackBar se muestre
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // Cerrar la pantalla solo después de la confirmación
+      Navigator.pop(context, true);
     } catch (e) {
-      print('Error programando alarmas/tomas iniciales: $e');
+      print('Error guardando o programando medicamento: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('❌ Error al guardar el medicamento.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      // Habilitar el botón nuevamente en caso de error
+      setState(() {
+        _isSaving = false;
+      });
     }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Medicamento añadido correctamente')),
-    );
-
-    Navigator.pop(context, true);
   }
 
   @override
@@ -310,10 +357,19 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
               const SizedBox(height: 28),
               Center(
                 child: ElevatedButton.icon(
-                  icon: const Icon(Icons.save_rounded, color: Colors.white),
-                  label: const Text(
-                    'Guardar Medicamento',
-                    style: TextStyle(
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.save_rounded, color: Colors.white),
+                  label: Text(
+                    _isSaving ? 'Guardando...' : 'Guardar Medicamento',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                     ),
@@ -328,7 +384,8 @@ class _AnadirMedicamentoScreenState extends State<AnadirMedicamentoScreen> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  onPressed: _guardarMedicamento,
+                  // Control de deshabilitación con la variable de estado
+                  onPressed: _isSaving ? null : _guardarMedicamento,
                 ),
               ),
             ],

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:aura3/widgets/common_appbar.dart';
-import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:intl/intl.dart';

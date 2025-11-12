@@ -1,4 +1,3 @@
-import 'package:aura3/crisis/HistorialCrisis.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -39,6 +38,9 @@ Future<void> main() async {
 
   try {
     await Hive.openBox<Medicamento>('medicamentosBox').timeout(boxOpenTimeout);
+    await Hive.openBox<TomaMedicamento>(
+      'tomasMedicamentosBox',
+    ).timeout(boxOpenTimeout);
   } catch (e) {
     debugPrint('⚠️ Timeout/failed opening medicamentosBox: $e');
   }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/TomaMedicamento.dart';
 import '../models/HistorialMedicamento.dart';
